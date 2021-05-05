@@ -1,13 +1,13 @@
-pacman::p_load(torch)
+pacman::p_load(torch, zeallot)
 
 
 t <- torch_randn(10, 10, 10)
 
-drnn <- nn_module(
-  classname = "drnn",
+nn_drnn <- nn_module(
+  classname = "nn_drnn",
 
   initialize = function(input_size, hidden_size, num_layers,
-                        dropout = 0, cell_type = "GRU",
+                        dropout = 0, cell_type = "gru",
                         batch_first = FALSE){
     self$num_layers <- num_layers
     self$dilations <- purrr::map_dbl(1:num_layers, ~2**(.-1))
@@ -15,9 +15,9 @@ drnn <- nn_module(
     self$batch_first <- batch_first
 
     cell <- switch (self$cell_type,
-      "GRU" = nn_gru,
-      "RNN" = nn_rnn,
-      "LSTM" = nn_lstm,
+      "gru" = nn_gru,
+      "rnn" = nn_rnn,
+      "lstm" = nn_lstm,
       stop("Invalid `cell_type` value.")
     )
 
@@ -34,51 +34,51 @@ drnn <- nn_module(
   },
 
   forward = function(input, hx = NULL){
-    if (self$batch_first) inputs <- inputs$transpose(1, 2)
+    if (self$batch_first) input <- input$transpose(1, 2)
 
-    outputs <- vector(mode = "list", length = self$num_layers)
+    output <- vector(mode = "list", length = self$num_layers)
     for (i in 1:self$num_layers) {
       cell <- self$cells[[i]]
       dilation <- self$dilations[[i]]
 
       if (is.null(hx)){
-        inputs <- self$drnn_layer(cell, input, dilation)
+        input <- self$drnn_layer(cell, input, dilation)
       } else {
         hidden <- hx[[i]]
-        c(inputs, hx[[i]]) %<-% self$drnn_layer(cell, input, dilation, hidden)
+        c(input, hx[[i]]) %<-% self$drnn_layer(cell, input, dilation, hidden)
       }
-      outputs[[i]] <- inputs[, -dilation:-1]
+      output[[i]] <- input[, -dilation:-1]
 
     }
 
-    if (self$batch_first) inputs <- inputs$transpose(1, 2)
+    if (self$batch_first) input <- input$transpose(1, 2)
 
-    list(inputs, outputs)
+    list(input, output)
   },
 
-  drnn_layer = function(cell, inputs, rate, hx = NULL){
-    n_steps <- length(inputs)
-    batch_size <- inputs[[1]]$size(1)
+  drnn_layer = function(cell, input, rate, hx = NULL){
+    n_steps <- length(input)
+    batch_size <- input$size(1)
     hidden_size <- cell$hidden_size
 
-    c(inputs, dummy) %<-% self$pad_inputs(inputs, n_steps, rate)
-    dilated_inputs <- self$prepare_inputs(inputs, rate)
+    c(input, dummy) %<-% self$pad_input(input, n_steps, rate)
+    dilated_input <- self$prepare_input(input, rate)
 
     if (is.null(hx)) {
-      c(dilated_outputs, hidden) <- self$apply_cell(dilated_inputs, cell, batch_size, rate, hidden_size)
+      c(dilated_output, hidden) <- self$apply_cell(dilated_input, cell, batch_size, rate, hidden_size)
     } else {
-      hidden <- self$prepare_inputs(hidden, rate)
-      c(dilated_outputs, hidden) <- self$apply_cell(dilated_inputs, cell, batch_size, rate, hidden_size, hidden)
+      hidden <- self$prepare_input(hidden, rate)
+      c(dilated_output, hidden) <- self$apply_cell(dilated_input, cell, batch_size, rate, hidden_size, hidden)
     }
 
-    splitted_outputs <- self$split_outputs(dilated_outputs, rate)
-    outputs <- self$unpad_outputs(splitted_outputs, n_steps)
+    splitted_output <- self$split_output(dilated_output, rate)
+    output <- self$unpad_output(splitted_output, n_steps)
 
-    list(outputs, hidden)
+    list(output, hidden)
   },
 
-  apply_cell = function(dilated_inputs, cell, batch_size, rate, hidden_size, hx = NULL){
-    device <- dilated_inputs$device
+  apply_cell = function(dilated_input, cell, batch_size, rate, hidden_size, hx = NULL){
+    device <- dilated_input$device
 
     if (is.null(hx)) {
       c(c, m) %<-% self$init_hidden(batch_size * rate, hidden_size,
@@ -92,60 +92,62 @@ drnn <- nn_module(
 
     }
 
-    c(dilated_outputs, hidden) %<-% cell(dilated_inputs, hidden)
+    c(dilated_output, hidden) %<-% cell(dilated_input, hidden)
 
-    list(dilated_inputs, hidden)
+    list(dilated_input, hidden)
   },
 
-  unpad_outputs = function(splitted_outputs, n_steps){
-    splitted_outputs[1:n_steps]
+  unpad_output = function(splitted_output, n_steps){
+    splitted_output[1:n_steps]
   },
 
-  split_outputs = function(dilated_outputs, rate){
-    batch_size <- dilated_outputs$size(1) %/% rate
+  split_output = function(dilated_output, dilation){
+    batch_size <- dilated_output$size(2) %/% dilation
 
-    blocks <- vector(mode = 'list', length = rate)
-    for (i in 1:rate) {
-      blocks[[i]] <- dilated_outputs[, (i - 1) * batch_size:i * batch_size,]
+    blocks <- vector(mode = 'list', length = dilation)
+    for (i in 1:dilation) {
+      first_idx <- 1 + (i - 1) * batch_size
+      last_idx <- i * batch_size
+      blocks[[i]] <- dilated_output[, first_idx:last_idx,]
     }
 
     interleaved <- torch_stack(blocks)$transpose(2, 1)$contiguous()
-    interleaved <- interleaved$view(dilated_outputs$size(1) * rate,
-                                    batch_size,
-                                    dilated_outputs$size(2))
+    interleaved <- interleaved$view(c(dilated_output$size(1) * dilation,
+                                      batch_size,
+                                      dilated_output$size(3)))
 
     interleaved
   },
 
-  pad_inputs = function(inputs, n_steps, rate){
+  pad_input = function(input, n_steps, rate){
      is_even <- (n_steps %% rate) == 0
 
      if (!is_even) {
        dilated_steps <- n_steps %/% rate + 1
-       zeros_ <- torch_zeros(dilated_steps * rate - inputs$size(1),
-                             inputs$size(1), inputs$size(2),
-                             dtype = inputs$dtype, device = inputs$device)
-        inputs <- torch_cat(c(inputs, zeros_))
+       zeros_ <- torch_zeros(dilated_steps * rate - input$size(1),
+                             input$size(1), input$size(2),
+                             dtype = input$dtype, device = input$device)
+        input <- torch_cat(c(input, zeros_))
      } else {
        dilated_steps <- n_steps %/% rate
      }
 
-     list(inputs, dilated_steps)
+     list(input, dilated_steps)
   },
 
-  prepare_inputs = function(inputs, rate){
-    dilated_inputs <- vector(model = "list", length = rate)
-    for (i in 1:rate) {
-      n_input <- inputs$size(1)
-      dilated_inputs[[i]] <- inputs[i:n_input:rate]
+  prepare_input = function(input, dilation){
+    dilated_input <- vector(mode = "list", length = dilation)
+    n_input <- input$size(1)
+    for (i in 1:dilation) {
+      dilated_input[[i]] <- input[i:n_input:dilation]
     }
 
-    dilated_inputs <- torch_cat(dilated_inputs, dim = 2)
+    dilated_input <- torch_cat(dilated_input, dim = 2)
 
-    dilated_inputs
+    dilated_input
   },
 
-  init_hidden = function(batch_size, hidden_dim, dtype){
+  init_hidden = function(batch_size, hidden_dim, device){
     hidden <- torch_zeros(batch_size, hidden_dim,
                           device = device)
 
@@ -160,3 +162,5 @@ drnn <- nn_module(
   }
 
 )
+
+
