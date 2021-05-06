@@ -5,6 +5,9 @@ model <- nn_drnn(input_size = 10, hidden_size = 10,
                  num_layers = 4, dropout = 0,
                  cell_type = "gru")
 
+x <- torch_randn(10, 1, 10)
+model(x)
+
 test_that("reshape tensor works", {
   batch_size <- 24
   input_size <- 3 #is this input_size?
