@@ -42,15 +42,17 @@ nn_drnn <- nn_module(
       cell <- self$cells[[i]]
       dilation <- self$dilations[[i]]
 
-      if (is.null(hx)){
-        c(output, dummy) %<-% self$drnn_layer(cell, output, dilation)
-      } else {
-        c(output, hx[[i]]) %<-% self$drnn_layer(cell, output, dilation, hx[[i]])
-      }
+      #if (is.null(hx)){
+      #  c(output, dummy) %<-% self$drnn_layer(cell, output, dilation)
+      #3} else {
+      c(output, hx[[i]]) %<-% self$drnn_layer(cell, output, dilation, hx[[i]])
+      print(hx[[i]]$shape)
+      #}
 
     }
 
     if (self$batch_first) output <- output$transpose(1, 2)
+    #hx <- torch_cat(hx)
 
     list(output, hx)
   },
@@ -61,11 +63,10 @@ nn_drnn <- nn_module(
 
     c(input, dummy) %<-% self$pad_input(input, n_steps, dilation)
     dilated_input <- self$prepare_input(input, dilation)
-    print(dilated_input)
 
-    if (!is.null(hx)) {
-      hx <- self$prepare_input(hx, dilation)
-    }
+    #if (!is.null(hx)) {
+    #  hx <- self$prepare_input(hx, dilation)
+    #}
 
     c(dilated_output, hx) %<-% self$apply_cell(dilated_input=dilated_input,
                                                cell=cell,
