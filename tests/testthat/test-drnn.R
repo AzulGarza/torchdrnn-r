@@ -1,27 +1,38 @@
 
 library(torchdrnn)
+library(zeallot)
+library(testthat)
 
-model <- nn_drnn(input_size = 10, hidden_size = 10,
+
+n_time <- 24
+batch_size <- 3
+n_feats <- 10 #input size
+dilation <- 2
+n_output_feats <- 20 #hidden size
+
+model <- nn_drnn(input_size = n_feats, hidden_size = n_output_feats,
                  num_layers = 4, dropout = 0,
                  cell_type = "gru")
 
-x <- torch_randn(10, 1, 10)
-model(x)
+test_that("forward correct shape", {
+  x <- torch_rand(n_time, batch_size, n_feats)
+  c(output, hidden) %<-% model(x)
+  expect_equal(x$shape, c(n_time, batch_size, n_feats))
+})
+
 
 test_that("reshape tensor works", {
-  batch_size <- 24
-  input_size <- 3 #is this input_size?
   dilation <- 2
 
-  x <- torch_randn(batch_size, input_size, 10)
+  x <- torch_randn(n_time, batch_size, n_feats)
   dilated_x <- model$prepare_input(input = x, dilation = dilation)
   # Correct shape of dilated_x
-  expected_shape <- c(batch_size / dilation, input_size * dilation, 10)
+  expected_shape <- c(n_time / dilation, batch_size * dilation, n_feats)
   expect_equal(dilated_x$shape, expected_shape)
 
   # Correct creation of dilated_x
-  expected_last_dilated_x <- x[dilation:batch_size:dilation]
-  last_dilated_x <- dilated_x[, (input_size + 1):dilated_x$size(1)]
+  expected_last_dilated_x <- x[dilation:n_time:dilation]
+  last_dilated_x <- dilated_x[, (n_feats + 1):dilated_x$size(1)]
   expect_equal(last_dilated_x, expected_last_dilated_x)
 
   #Correct undilation of dilated_x
@@ -29,3 +40,4 @@ test_that("reshape tensor works", {
                                    dilation = dilation)
   expect_equal(expected_x, x)
 })
+
