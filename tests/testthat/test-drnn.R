@@ -58,3 +58,14 @@ test_that("Correct shape hidden list", {
     expect_equal(hidden[[i]]$shape, expected_sizes[[i]])
   }
 })
+
+test_that("forward with predefined hidden", {
+  hidden <- vector(mode = "list", length = num_layers)
+  for (i in 1:num_layers) {
+    hidden[[i]] <- torch_rand(1, batch_size * 2 ** (i - 1), n_output_feats)
+  }
+
+  x <- torch_rand(n_time, batch_size, n_feats)
+  c(output, hidden) %<-% model(x, hx = hidden)
+
+})
