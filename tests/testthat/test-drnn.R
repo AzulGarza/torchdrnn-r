@@ -9,10 +9,10 @@ batch_size <- 3
 n_feats <- 10 #input size
 dilation <- 2
 n_output_feats <- 20 #hidden size
+num_layers <- 4
 
 model <- nn_drnn(input_size = n_feats, hidden_size = n_output_feats,
-                 num_layers = 4, dropout = 0,
-                 cell_type = "gru")
+                 num_layers = num_layers, cell_type = "gru")
 
 test_that("forward correct shape", {
   x <- torch_rand(n_time, batch_size, n_feats)
@@ -25,7 +25,8 @@ test_that("reshape tensor works", {
   dilation <- 2
 
   x <- torch_randn(n_time, batch_size, n_feats)
-  dilated_x <- model$prepare_input(input = x, dilation = dilation)
+  c(input, dummy) %<-% model$pad_input(input = x, n_steps = n_time, dilation = dilation)
+  dilated_x <- model$prepare_input(input = input, dilation = dilation)
   # Correct shape of dilated_x
   expected_shape <- c(n_time / dilation, batch_size * dilation, n_feats)
   expect_equal(dilated_x$shape, expected_shape)
@@ -38,6 +39,22 @@ test_that("reshape tensor works", {
   #Correct undilation of dilated_x
   expected_x <- model$split_output(dilated_output = dilated_x,
                                    dilation = dilation)
-  expect_equal(expected_x, x)
+  expect_equal(x, expected_x)
 })
 
+test_that("Correct shape hidden list", {
+  x <- torch_randn(n_time, batch_size, n_feats)
+  c(output, hidden) %<-% model(x)
+  expect_equal(length(hidden), num_layers)
+
+  expected_sizes <- list(
+    c(1, batch_size * 2 ** 0, n_output_feats),
+    c(1, batch_size * 2 ** 1, n_output_feats),
+    c(1, batch_size * 2 ** 2, n_output_feats),
+    c(1, batch_size * 2 ** 3, n_output_feats)
+  )
+
+  for(i in 1:num_layers){
+    expect_equal(hidden[[i]]$shape, expected_sizes[[i]])
+  }
+})
