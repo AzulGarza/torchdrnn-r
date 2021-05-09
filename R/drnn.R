@@ -1,8 +1,6 @@
 pacman::p_load(torch, zeallot)
 
 
-t <- torch_randn(10, 10, 10)
-
 nn_drnn <- nn_module(
   classname = "nn_drnn",
 
@@ -41,13 +39,7 @@ nn_drnn <- nn_module(
     for (i in 1:self$num_layers) {
       cell <- self$cells[[i]]
       dilation <- self$dilations[[i]]
-
-      #if (is.null(hx)){
-      #  c(output, dummy) %<-% self$drnn_layer(cell, output, dilation)
-      #3} else {
       c(output, hx[[i]]) %<-% self$drnn_layer(cell, output, dilation, hx[[i]])
-      print(hx[[i]]$shape)
-      #}
 
     }
 
@@ -63,10 +55,6 @@ nn_drnn <- nn_module(
 
     c(input, dummy) %<-% self$pad_input(input, n_steps, dilation)
     dilated_input <- self$prepare_input(input, dilation)
-
-    #if (!is.null(hx)) {
-    #  hx <- self$prepare_input(hx, dilation)
-    #}
 
     c(dilated_output, hx) %<-% self$apply_cell(dilated_input=dilated_input,
                                                cell=cell,
